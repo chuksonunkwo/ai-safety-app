@@ -3,32 +3,151 @@ import requests
 import json
 from fpdf import FPDF
 import base64
+from datetime import datetime
 
-# --- 1. CONFIGURATION ---
+# --- 1. CONFIGURATION & STYLING ---
 st.set_page_config(
-    page_title="HSE Incident Commander",
-    page_icon="🦺",
+    page_title="HSE Incident Commander | Enterprise Edition",
+    page_icon="🛡️",
     layout="wide"
 )
 
-# --- 2. THE AI ENGINE ---
-def get_ai_response(api_key, prompt, model_type="flash"):
-    """Connects to Google Gemini API"""
+# Custom CSS for that "Consultant" look
+st.markdown("""
+<style>
+    .main-header { font-family: 'Helvetica', sans-serif; color: #0f172a; font-size: 2.5rem; font-weight: 700; }
+    .sub-header { font-family: 'Helvetica', sans-serif; color: #64748b; font-size: 1.2rem; }
+    .report-container { 
+        background-color: white; 
+        padding: 40px; 
+        border-radius: 5px; 
+        box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1); 
+        border-top: 5px solid #1e3a8a;
+    }
+    .stButton>button { 
+        background-color: #1e3a8a; 
+        color: white; 
+        font-weight: bold; 
+        border: none; 
+        height: 50px;
+    }
+</style>
+""", unsafe_allow_html=True)
+
+# --- 2. PROFESSIONAL PDF ENGINE ---
+class PDF(FPDF):
+    def header(self):
+        # Logo placeholder (Text for now)
+        self.set_font('Arial', 'B', 10)
+        self.set_text_color(100, 100, 100)
+        self.cell(0, 10, 'HSE ADVISORY SERVICES | CONFIDENTIAL', 0, 0, 'L')
+        self.cell(0, 10, f'Generated: {datetime.now().strftime("%Y-%m-%d")}', 0, 1, 'R')
+        self.ln(5)
+        # Line break
+        self.set_draw_color(200, 200, 200)
+        self.line(10, 25, 200, 25)
+        self.ln(10)
+
+    def footer(self):
+        self.set_y(-15)
+        self.set_font('Arial', 'I', 8)
+        self.set_text_color(150, 150, 150)
+        self.cell(0, 10, f'Page {self.page_no()} | Internal Use Only', 0, 0, 'C')
+
+    def chapter_title(self, label):
+        self.set_font('Arial', 'B', 12)
+        self.set_text_color(30, 58, 138) # Dark Blue
+        self.cell(0, 10, label, 0, 1, 'L')
+        self.ln(2)
+
+    def chapter_body(self, body):
+        self.set_font('Arial', '', 10)
+        self.set_text_color(0, 0, 0)
+        # Encode strictly to latin-1 to avoid font errors
+        clean_body = body.encode('latin-1', 'replace').decode('latin-1')
+        self.multi_cell(0, 5, clean_body)
+        self.ln()
+
+def create_professional_pdf(report_text, incident_type):
+    pdf = PDF()
+    pdf.add_page()
+    
+    # Title
+    pdf.set_font('Arial', 'B', 16)
+    pdf.set_text_color(0, 0, 0)
+    pdf.cell(0, 10, f"INCIDENT INVESTIGATION REPORT: {incident_type.upper()}", 0, 1, 'C')
+    pdf.ln(10)
+    
+    # Process the text (We assume the AI returns markdown-style headers with **)
+    # For a simple PDF, we just dump the text, but formatted cleanly
+    pdf.chapter_body(report_text)
+    
+    return pdf.output(dest='S').encode('latin-1')
+
+# --- 3. THE "TIER 1" AI LOGIC ---
+def get_consultant_report(api_key, scenario, depth):
+    if not api_key:
+        return None, "⚠️ Security Alert: API Key missing."
+    
     try:
-        # Auto-detect model version
+        # A. Connection Setup
         list_url = f"https://generativelanguage.googleapis.com/v1beta/models?key={api_key}"
         data = requests.get(list_url).json()
         
         if 'error' in data:
             return None, f"API Error: {data['error']['message']}"
             
-        model_name = "models/gemini-1.5-flash" # Fallback
+        model_name = "models/gemini-1.5-flash"
         for m in data.get('models', []):
             if 'flash' in m['name']:
                 model_name = m['name']
                 break
-        
-        # Call API
+
+        # B. "Tier 1 Consultant" Prompt Engineering
+        if depth == "Strategic (Deep Dive)":
+            prompt = f"""
+            Act as a Senior Partner at a Tier 1 HSE Consultancy (like ERM or McKinsey).
+            
+            CLIENT SCENARIO: "{scenario}"
+            
+            TASK: 
+            Draft a high-level **Root Cause Analysis & Strategic Advisory Report**.
+            Tone: Professional, Objective, Authoritative. No fluff.
+            
+            REQUIRED STRUCTURE:
+            
+            1. EXECUTIVE SUMMARY
+            (A concise 3-sentence overview of the failure and its impact.)
+            
+            2. INCIDENT CHRONOLOGY & FACTS
+            (Reconstruct the likely timeline based on the scenario.)
+            
+            3. BARRIER FAILURE ANALYSIS (Swiss Cheese Model)
+            * **Hardware Failure:** (What equipment failed?)
+            * **Human Error:** (What action was missed?)
+            * **Systemic Failure:** (What organizational process was broken?)
+            
+            4. ROOT CAUSE (The 5 Whys)
+            (Drill down to the management system failure.)
+            
+            5. RISK CLASSIFICATION (IOGP Matrix)
+            * **Actual Severity:**
+            * **Potential Severity:**
+            
+            6. STRATEGIC RECOMMENDATIONS
+            * **Immediate Containment:** (Do this now)
+            * **Systemic Correction:** (Fix the process)
+            * **Preventative Strategy:** (Long term culture change)
+            """
+        else:
+            prompt = f"""
+            Act as a Site Safety Lead. Write a **Flash Incident Notification**.
+            Scenario: "{scenario}"
+            Focus: Just the facts, immediate cause, and immediate barrier actions.
+            Format: Professional Bullet Points.
+            """
+
+        # C. Execution
         generate_url = f"https://generativelanguage.googleapis.com/v1beta/{model_name}:generateContent?key={api_key}"
         headers = {'Content-Type': 'application/json'}
         payload = {"contents": [{"parts": [{"text": prompt}]}]}
@@ -43,89 +162,61 @@ def get_ai_response(api_key, prompt, model_type="flash"):
     except Exception as e:
         return None, f"Connection Failed: {str(e)}"
 
-# --- 3. PDF GENERATOR ---
-def create_pdf(text, report_type):
-    pdf = FPDF()
-    pdf.add_page()
-    pdf.set_font("Arial", size=10)
+# --- 4. THE UI ---
+# Sidebar
+with st.sidebar:
+    st.title("⚙️ Control Panel")
     
-    # Header
-    pdf.set_font("Arial", 'B', 14)
-    title = "INVESTIGATION REPORT" if "Detailed" in report_type else "FLASH REPORT"
-    pdf.cell(0, 10, f"HSE: {title}", 0, 1, 'C')
-    pdf.ln(10)
+    # API Key Handling (Check secrets first, then input)
+    if "GOOGLE_API_KEY" in st.secrets:
+        api_key = st.secrets["GOOGLE_API_KEY"]
+        st.success("✅ Enterprise License Active")
+    else:
+        api_key = st.text_input("Enter API Key", type="password")
+        st.caption("Enter your Google Gemini Key to activate.")
+
+    report_depth = st.radio(
+        "Analysis Depth:",
+        ("Operational (Flash Report)", "Strategic (Deep Dive)")
+    )
     
-    # Content
-    pdf.set_font("Arial", size=10)
-    # Sanitize text for PDF (latin-1 encoding handles most standard text)
-    clean_text = text.encode('latin-1', 'replace').decode('latin-1')
-    pdf.multi_cell(0, 5, clean_text)
-    
-    return pdf.output(dest='S').encode('latin-1')
+    st.markdown("---")
+    st.markdown("**Version:** 2.4.0 (Enterprise)")
 
-# --- 4. USER INTERFACE ---
-st.markdown("""
-<style>
-    .main-header { font-size: 2rem; font-weight: bold; color: #0E1117; }
-    .report-container { background-color: #f0f2f6; padding: 20px; border-radius: 10px; border-left: 5px solid #ff4b4b; }
-</style>
-""", unsafe_allow_html=True)
+# Main Area
+st.markdown('<div class="main-header">HSE Incident Commander</div>', unsafe_allow_html=True)
+st.markdown('<div class="sub-header">AI-Powered Root Cause Analysis & Reporting Engine</div>', unsafe_allow_html=True)
+st.markdown("<br>", unsafe_allow_html=True)
 
-st.sidebar.image("https://cdn-icons-png.flaticon.com/512/1042/1042390.png", width=80)
-st.sidebar.title("Settings")
-
-# API Key Input (Secure Password Field)
-api_key = st.sidebar.text_input("Enter Google API Key", type="password")
-st.sidebar.caption("Get a key from aistudio.google.com")
-
-# Report Toggle
-report_type = st.sidebar.radio(
-    "Report Depth:",
-    ("Summarized (Flash Report)", "Detailed (Full Investigation)")
-)
-
-st.title("🦺 AI Incident Commander")
-st.markdown("Enter an incident description below. The AI will generate a standardized HSE report.")
-
-col1, col2 = st.columns([1, 1])
+col1, col2 = st.columns([1, 1], gap="large")
 
 with col1:
-    st.subheader("Input")
-    scenario = st.text_area("Describe the event:", height=250, placeholder="Example: At 23:00, the night shift drilling crew reported a kick...")
-    generate_btn = st.button("Generate Report 🚀", use_container_width=True)
+    st.markdown("### 1. Incident Intake")
+    st.info("Describe the event below. Include time, equipment, and observed conditions.")
+    scenario = st.text_area("Event Description:", height=300, placeholder="e.g., During routine pressure testing on the Skid B manifold...")
+    
+    generate_btn = st.button("GENERATE REPORT", use_container_width=True)
 
 with col2:
-    st.subheader("Output")
+    st.markdown("### 2. Analysis Output")
     
     if generate_btn:
-        if not api_key:
-            st.error("Please enter your API Key in the sidebar.")
-        elif not scenario:
-            st.warning("Please describe the incident.")
+        if not scenario:
+            st.warning("⚠️ Please input event details.")
         else:
-            with st.spinner("Analyzing incident..."):
-                # Define Prompt
-                if "Detailed" in report_type:
-                    prompt = f"""Act as a Lead HSE Investigator. Write a **DETAILED Level 3 Incident Report**.
-                    Scenario: "{scenario}"
-                    Sections: 1. INCIDENT HEADER, 2. DETAILED NARRATIVE, 3. BARRIER ANALYSIS, 4. ROOT CAUSE (5 Whys), 5. RECOMMENDATIONS."""
-                else:
-                    prompt = f"""Act as a Safety Officer. Write a **SUMMARIZED Flash Report**.
-                    Scenario: "{scenario}"
-                    Sections: 1. WHAT HAPPENED, 2. IMMEDIATE CAUSE, 3. ACTION TAKEN, 4. RISK RATING."""
-
-                # Run AI
-                report_text, error = get_ai_response(api_key, prompt)
+            with st.spinner("Consulting Knowledge Base..."):
+                report_text, error = get_consultant_report(api_key, scenario, report_depth)
                 
                 if error:
                     st.error(error)
                 else:
+                    # Render the report nicely in a "Paper" look
                     st.markdown(f'<div class="report-container">{report_text}</div>', unsafe_allow_html=True)
                     
-                    # PDF Download
-                    pdf_data = create_pdf(report_text, report_type)
+                    # Create Download Button
+                    pdf_data = create_professional_pdf(report_text, "Investigation")
                     b64 = base64.b64encode(pdf_data).decode()
-                    href = f'<a href="data:application/octet-stream;base64,{b64}" download="Incident_Report.pdf" style="text-decoration:none;">' \
-                           f'<button style="width:100%; margin-top:10px; padding:10px; background-color:#28a745; color:white; border:none; border-radius:5px; cursor:pointer;">' \
-                           f'📥 Download PDF</button></a>'
+                    href = f'<a href="data:application/octet-stream;base64,{b64}" download="Professional_HSE_Report.pdf" style="text-decoration:none;">' \
+                           f'<button style="width:100%; margin-top:20px; padding:15px; background-color:#22c55e; color:white; border:none; border-radius:5px; font-weight:bold; cursor:pointer;">' \
+                           f'📥 DOWNLOAD OFFICIAL PDF</button></a>'
                     st.markdown(href, unsafe_allow_html=True)
