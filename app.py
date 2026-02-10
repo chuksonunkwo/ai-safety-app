@@ -68,7 +68,7 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-# --- 3. TIER 1 PDF ENGINE ---
+# --- 3. TIER 1 PDF ENGINE (UPDATED TO REMOVE **) ---
 class ConsultReport(FPDF):
     def header(self):
         if self.page_no() > 1: # No header on title page
@@ -85,16 +85,14 @@ class ConsultReport(FPDF):
         self.set_text_color(148, 163, 184)
         self.cell(0, 10, f'Page {self.page_no()} | AI HSE Incident Report v1.0', 0, 0, 'C')
 
-    def chapter_title(self, label):
-        self.set_font('Arial', 'B', 12)
-        self.set_text_color(30, 58, 138) # Dark Blue
-        self.cell(0, 10, label, 0, 1, 'L')
-        self.ln(2)
-
     def chapter_body(self, body):
         self.set_font('Times', '', 11) # Serif font for professional body text
         self.set_text_color(30, 41, 59) # Dark Slate
-        clean_body = body.encode('latin-1', 'replace').decode('latin-1')
+        
+        # --- THE FIX: REMOVE MARKDOWN ASTERISKS ---
+        clean_text = body.replace('**', '').replace('__', '')
+        
+        clean_body = clean_text.encode('latin-1', 'replace').decode('latin-1')
         self.multi_cell(0, 6, clean_body)
         self.ln(5)
 
